@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 
 	"github.com/adrianosela/authio"
@@ -59,31 +60,35 @@ func handleConn(clientID int, conn net.Conn, key string) {
 	defer conn.Close()
 
 	// initialize authenticated reader and writer
-	authedReader := authio.NewReader(conn, []byte(key))
-	authedWriter := authio.NewWriter(conn, []byte(key))
+	authedWriter := authio.NewVerifyHMACWriter(os.Stdout, []byte(key))
 
 	for {
-		// read input from authenticated reader
-		data, err := bufio.NewReader(authedReader).ReadString('\n')
+		// read ${REQ_HMAC}:${MSG}
+		msg, err := bufio.NewReader(conn).ReadString('\n')
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				log.Printf("failed to read authed reader for client id %d: %s", clientID, err)
+			if errors.Is(err, io.EOF) {
+				return
 			}
+		}
+
+		// print client id
+		fmt.Printf("[%d] ", clientID)
+
+		// verify ${REQ_HMAC}, print ${MSG} to stdout
+		_, err = io.WriteString(authedWriter, msg)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			log.Printf("failed to write to stdout writer for client id %d: %s", clientID, err)
 			return
 		}
 
-		// write input to stdout
-		fmt.Printf("[%d] %s", clientID, data)
-
-		// echo back input with a timestamp on authenticated writer
-		writer := bufio.NewWriter(authedWriter)
-		_, err = writer.WriteString(fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), data))
+		// write ${RESP_HMAC}:${RESPONSE}
+		resp := fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), string([]byte(msg)[32:])) // strip hmac from REQ
+		_, err = io.WriteString(authio.NewAppendHMACWriter(conn, []byte(key)), resp)
 		if err != nil {
 			log.Printf("failed to write to writer for client id %d: %s", clientID, err)
-			return
-		}
-		if err = writer.Flush(); err != nil {
-			log.Printf("failed to flush writer for client id %d: %s", clientID, err)
 			return
 		}
 	}
