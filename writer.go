@@ -6,13 +6,13 @@ import "io"
 // type serves as an alias to whichever implementation of
 // io.Writer is considered the default for this package.
 type Writer struct {
-	*AppendHMACWriter
+	*AppendMACWriter
 }
 
 // ensure Writer implements io.Writer at compile-time
-var _ io.Writer = (*AppendHMACWriter)(nil)
+var _ io.Writer = (*AppendMACWriter)(nil)
 
 // NewWriter returns a new Writer
 func NewWriter(writer io.Writer, key []byte) *Writer {
-	return &Writer{NewAppendHMACWriter(writer, key)}
+	return &Writer{NewAppendMACWriter(writer, key)}
 }

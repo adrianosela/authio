@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -60,33 +61,34 @@ func handleConn(clientID int, conn net.Conn, key string) {
 	defer conn.Close()
 
 	// initialize authenticated reader and writer
-	authedWriter := authio.NewVerifyHMACWriter(os.Stdout, []byte(key))
+	authedWriter := authio.NewVerifyMACWriter(os.Stdout, []byte(key))
+	macLength := authio.GetMACLenth(sha256.New)
 
 	for {
-		// read ${REQ_HMAC}:${MSG}
+		// read ${REQ_MAC}:${MSG}
 		msg, err := bufio.NewReader(conn).ReadString('\n')
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return
+			if !errors.Is(err, io.EOF) {
+				log.Printf("failed to read from connection for client id %d: %s", clientID, err)
 			}
+			return
 		}
 
 		// print client id
 		fmt.Printf("[%d] ", clientID)
 
-		// verify ${REQ_HMAC}, print ${MSG} to stdout
+		// verify ${REQ_MAC}, print ${MSG} to stdout
 		_, err = io.WriteString(authedWriter, msg)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
 			log.Printf("failed to write to stdout writer for client id %d: %s", clientID, err)
 			return
 		}
 
-		// write ${RESP_HMAC}:${RESPONSE}
-		resp := fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), string([]byte(msg)[32:])) // strip hmac from REQ
-		_, err = io.WriteString(authio.NewAppendHMACWriter(conn, []byte(key)), resp)
+		// write [${TIMESTAMP}] ${MSG} back
+		_, err = io.WriteString(
+			authio.NewAppendMACWriter(conn, []byte(key)),
+			fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), string([]byte(msg)[macLength:])),
+		)
 		if err != nil {
 			log.Printf("failed to write to writer for client id %d: %s", clientID, err)
 			return
