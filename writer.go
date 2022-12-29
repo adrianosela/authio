@@ -44,7 +44,7 @@ func (w *Writer) Write(b []byte) (int, error) {
 	// put together data (${HMAC}${MSG})
 	data := append(sum, b...)
 
-	// write data to conn
+	// write data to writer
 	n, err := w.writer.Write(data)
 	if err != nil {
 		return n, fmt.Errorf("failed to write signed message: %s", err)

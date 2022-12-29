@@ -62,7 +62,7 @@ func (r *Reader) Read(b []byte) (int, error) {
 	sum := computed.Sum(nil)
 
 	// compare received vs computed HMAC
-	if string(mac) != string(computed.Sum(nil)) {
+	if string(mac) != string(sum) {
 		return 0, fmt.Errorf(
 			"mac did not match sum: mac(%s)|sum(%s)",
 			base64.StdEncoding.EncodeToString(mac),
