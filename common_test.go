@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/binary"
 	"hash"
 	"testing"
 
@@ -65,7 +66,114 @@ func Test_getMACLength(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.expectLength, GetMACLenth(test.hashFn))
+			assert.Equal(t, test.expectLength, GetMACLength(test.hashFn))
+		})
+	}
+}
+
+func Test_encodeHeader(t *testing.T) {
+	tests := []struct {
+		name   string
+		hashFn func() hash.Hash
+		key    []byte
+		data   []byte
+	}{
+		{
+			name:   "Empty data",
+			hashFn: sha256.New,
+			key:    []byte("mock key"),
+			data:   nil,
+		},
+		{
+			name:   "Empty key",
+			hashFn: sha256.New,
+			key:    nil,
+			data:   []byte("mock data"),
+		},
+		{
+			name:   "Non-empty data",
+			hashFn: sha256.New,
+			key:    []byte("mock key"),
+			data:   []byte("mock data"),
+		},
+		{
+			name:   "Non standard hash algo",
+			hashFn: sha512.New,
+			key:    []byte("mock key"),
+			data:   []byte("mock data"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			header, err := encodeHeader(test.hashFn, test.key, test.data)
+			assert.NoError(t, err)
+			assert.Equal(t, uint64(len(test.data)+GetMACLength(test.hashFn)), binary.BigEndian.Uint64(header[:sizeLen]))
+		})
+	}
+}
+
+func Test_ComputeAndPrependMAC(t *testing.T) {
+	tests := []struct {
+		name           string
+		hashFn         func() hash.Hash
+		key            []byte
+		data           []byte
+		expectedResult string
+	}{
+		{
+			name:   "Single Message",
+			hashFn: sha256.New,
+			key:    []byte("mock key"),
+			data:   []byte("mock data"),
+			expectedResult: string(
+				append(
+					[]byte{0, 0, 0, 0, 0, 0, 0, byte(GetMACLength(sha256.New) + len("mock data"))}, // header
+					append(
+						[]byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U="), // HMAC("mock data", "mock key")
+						[]byte("mock data")...)..., // data
+				)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := ComputeAndPrependMAC(test.hashFn, test.key, test.data)
+			assert.NoError(t, err)
+			assert.Equal(t, test.expectedResult, string(result))
+		})
+	}
+}
+
+func Test_CheckAndStripMAC(t *testing.T) {
+	mockMsg := append([]byte{0, 0, 0, 0, 0, 0, 0, byte(GetMACLength(sha256.New) + len("mock data"))}, []byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U=mock data")...)
+	mockMsg = append(mockMsg, mockMsg...)
+
+	tests := []struct {
+		name           string
+		hashFn         func() hash.Hash
+		key            []byte
+		data           []byte
+		expectedResult string
+	}{
+		{
+			name:           "Single message",
+			hashFn:         sha256.New,
+			key:            []byte("mock key"),
+			data:           append([]byte{0, 0, 0, 0, 0, 0, 0, byte(GetMACLength(sha256.New) + len("mock data"))}, []byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U=mock data")...),
+			expectedResult: "mock data",
+		},
+		{
+			name:           "Multiple messages",
+			hashFn:         sha256.New,
+			key:            []byte("mock key"),
+			data:           mockMsg,
+			expectedResult: "mock datamock data",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := CheckAndStripMAC(test.hashFn, GetMACLength(test.hashFn), test.key, test.data)
+			assert.NoError(t, err)
+			assert.Equal(t, test.expectedResult, string(result))
 		})
 	}
 }

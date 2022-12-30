@@ -32,7 +32,7 @@ func NewVerifyMACWriter(writer io.Writer, key []byte) *VerifyMACWriter {
 		key:    key,
 		hashFn: sha256.New,
 	}
-	w.macLen = GetMACLenth(w.hashFn)
+	w.macLen = GetMACLength(w.hashFn)
 	return w
 }
 
@@ -44,7 +44,7 @@ func (w *VerifyMACWriter) Write(b []byte) (int, error) {
 	}
 	n, err := w.writer.Write(msg)
 	if err != nil {
-		return n + w.macLen, fmt.Errorf("failed to write authenticated message: %s", err)
+		return n + (sizeLen + w.macLen), fmt.Errorf("failed to write authenticated message: %s", err)
 	}
-	return n + w.macLen, nil
+	return n + (sizeLen + w.macLen), nil
 }

@@ -25,7 +25,7 @@ func NewAppendMACWriter(writer io.Writer, key []byte) *AppendMACWriter {
 		key:    key,
 		hashFn: sha256.New,
 	}
-	w.macLen = GetMACLenth(w.hashFn)
+	w.macLen = GetMACLength(w.hashFn)
 	return w
 }
 
@@ -37,11 +37,11 @@ func (w *AppendMACWriter) Write(b []byte) (int, error) {
 	}
 	n, err := w.writer.Write(data)
 	if err != nil {
-		if n >= w.macLen {
-			return n - w.macLen, fmt.Errorf("failed to write authenticated message: %s", err)
+		if n >= (sizeLen + w.macLen) {
+			return n - (sizeLen + w.macLen), fmt.Errorf("failed to write authenticated message: %s", err)
 		}
 		// no message bytes were written (only MAC)
 		return 0, fmt.Errorf("failed to write authenticated message: %s", err)
 	}
-	return n - w.macLen, nil
+	return n - (sizeLen + w.macLen), nil
 }

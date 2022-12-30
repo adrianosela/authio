@@ -26,7 +26,7 @@ func NewVerifyMACReader(reader io.Reader, key []byte) *VerifyMACReader {
 		key:    key,
 		hashFn: sha256.New,
 	}
-	r.macLen = GetMACLenth(r.hashFn)
+	r.macLen = GetMACLength(r.hashFn)
 	return r
 }
 

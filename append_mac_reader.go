@@ -26,7 +26,7 @@ func NewAppendMACReader(reader io.Reader, key []byte) *AppendMACReader {
 		key:    key,
 		hashFn: sha256.New,
 	}
-	r.macLen = GetMACLenth(r.hashFn)
+	r.macLen = GetMACLength(r.hashFn)
 	return r
 }
 

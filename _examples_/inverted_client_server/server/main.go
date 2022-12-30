@@ -62,7 +62,7 @@ func handleConn(clientID int, conn net.Conn, key string) {
 
 	// initialize authenticated reader and writer
 	authedWriter := authio.NewVerifyMACWriter(os.Stdout, []byte(key))
-	macLength := authio.GetMACLenth(sha256.New)
+	macLength := 8 + authio.GetMACLength(sha256.New)
 
 	for {
 		// read ${REQ_MAC}:${MSG}
