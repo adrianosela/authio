@@ -35,8 +35,8 @@ func (r *VerifyMACReader) Read(b []byte) (int, error) {
 	// buffer big enough to read mac and fill b
 	buf := make([]byte, r.macLen+len(b))
 
-	// read at least one byte more than the hash length
-	n, err := io.ReadAtLeast(r.reader, buf, r.macLen+1)
+	// read at least one hash length (empty message)
+	n, err := io.ReadAtLeast(r.reader, buf, r.macLen)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return 0, io.EOF
