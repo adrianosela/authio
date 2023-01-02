@@ -19,6 +19,8 @@ Note that `authio.Writer` and `authio.Reader` are aliases for other types in thi
 ### Road Map
 
 - Timestamp/SequenceNum/Nonces i.e. replay attack mitigation
+- Need to account for case where buffer given to Read(buf) is too small to fit all the data read from underlying io.Reader
+   - e.g. keep a buffer of already-verified bytes in-memory and copy those bytes first on the next Read(buf)
 - Unit tests for all functions
 - Better naming convention
 - Better message authentication (e.g. hash algo, size, etc) parameter setting on reader/writer building

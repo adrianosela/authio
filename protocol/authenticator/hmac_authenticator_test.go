@@ -6,7 +6,6 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"hash"
-	"log"
 	"testing"
 
 	"github.com/autarch/testify/assert"
@@ -105,49 +104,57 @@ func Test_encodeHeader(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		hashLen := computeHeaderLengthWithHash(test.hashFn)
+		headerLen := computeHeaderLengthWithHash(test.hashFn)
 
 		t.Run(test.name, func(t *testing.T) {
-			header, err := encodeHeader(test.hashFn, hashLen, test.key, test.data)
+			header, err := encodeHeader(test.hashFn, headerLen, test.key, test.data)
 			assert.NoError(t, err)
-			assert.Equal(t, uint64(hashLen+len(test.data)), binary.BigEndian.Uint64(header[:lengthHeaderFieldSize]))
+			// FIXME: not checking actual hash, just length
+			assert.Equal(t, uint64(headerLen+len(test.data)), binary.BigEndian.Uint64(header[headerLen-lengthHeaderFieldSize:]))
 		})
 	}
 }
 
 func Test_AuthenticateMessages(t *testing.T) {
-	mockMsg := append([]byte{0, 0, 0, 0, 0, 0, 0, byte(computeHeaderLengthWithHash(sha256.New) + len("mock data"))}, []byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U=mock data")...)
+	mockKey := []byte("mock key")
+	mockRawMsg := []byte("mock data")
+
+	mockRawMsgLength := len(mockRawMsg)
+	mockRawMsgHeaderLength := computeHeaderLengthWithHash(sha256.New)
+	mockRawMsgAndSizeMAC := []byte("ayfkWUgjU14GmJSb+O5QP3IU7ZepnQ52KwV2s7iBX8Q=")
+	mockAuthedMsgHeader := append(mockRawMsgAndSizeMAC, []byte{0, 0, 0, 0, 0, 0, 0, byte(mockRawMsgHeaderLength + mockRawMsgLength)}...)
+	mockAuthedMsg := append(mockAuthedMsgHeader, mockRawMsg...)
 
 	tests := []struct {
 		name                string
 		hashFn              func() hash.Hash
 		key                 []byte
 		data                []byte
-		expectedMsg         string
+		expectedMsg         []byte
 		expectedSubMsgCount int
 	}{
 		{
 			name:                "No messages",
 			hashFn:              sha256.New,
-			key:                 []byte("mock key"),
-			data:                nil,
-			expectedMsg:         "",
+			key:                 mockKey,
+			data:                []byte{},
+			expectedMsg:         []byte{},
 			expectedSubMsgCount: 0,
 		},
 		{
 			name:                "Single message",
 			hashFn:              sha256.New,
-			key:                 []byte("mock key"),
-			data:                append([]byte{0, 0, 0, 0, 0, 0, 0, byte(computeHeaderLengthWithHash(sha256.New) + len("mock data"))}, []byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U=mock data")...),
-			expectedMsg:         "mock data",
+			key:                 mockKey,
+			data:                mockAuthedMsg,
+			expectedMsg:         mockRawMsg,
 			expectedSubMsgCount: 1,
 		},
 		{
 			name:                "Multiple messages",
 			hashFn:              sha256.New,
-			key:                 []byte("mock key"),
-			data:                append(mockMsg, mockMsg...), // twice the mock message
-			expectedMsg:         "mock datamock data",
+			key:                 mockKey,
+			data:                append(mockAuthedMsg, mockAuthedMsg...), // twice the authenticated mock message
+			expectedMsg:         append(mockRawMsg, mockRawMsg...),       // twice the raw mock message
 			expectedSubMsgCount: 2,
 		},
 	}
@@ -157,13 +164,17 @@ func Test_AuthenticateMessages(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			msg, subMsgCount, err := a.AuthenticateMessages(test.data)
 			assert.NoError(t, err)
-			assert.Equal(t, test.expectedMsg, string(msg))
+			assert.Equal(t, string(test.expectedMsg), string(msg))
 			assert.Equal(t, test.expectedSubMsgCount, subMsgCount)
 		})
 	}
 }
 
 func Test_GetMessageAuthenticationHeader(t *testing.T) {
+	mockKey := []byte("mock key")
+	mockRawMsg := []byte("mock data")
+	mockRawMsgLength := len(mockRawMsg)
+
 	tests := []struct {
 		name           string
 		hashFn         func() hash.Hash
@@ -174,23 +185,27 @@ func Test_GetMessageAuthenticationHeader(t *testing.T) {
 		{
 			name:   "Empty Message",
 			hashFn: sha256.New,
-			key:    []byte("mock key"),
+			key:    mockKey,
 			data:   nil,
 			expectedResult: string(
 				append(
-					[]byte{0, 0, 0, 0, 0, 0, 0, byte(computeHeaderLengthWithHash(sha256.New))}, // header
-					[]byte("bBWImfyUuwy5dhnY52lKqq/vYUrHymjxpvN0asCa4oM=")...,                  // HMAC("mock data", "")
+					// HMAC((length, data), key)
+					[]byte("rmjVAFKO54bic4xdCaUh/nNhp3D5llQsrKF7g890XHk="),
+					// length
+					[]byte{0, 0, 0, 0, 0, 0, 0, byte(computeHeaderLengthWithHash(sha256.New))}...,
 				)),
 		},
 		{
 			name:   "Non-empty Message",
 			hashFn: sha256.New,
-			key:    []byte("mock key"),
-			data:   []byte("mock data"),
+			key:    mockKey,
+			data:   mockRawMsg,
 			expectedResult: string(
 				append(
-					[]byte{0, 0, 0, 0, 0, 0, 0, byte(computeHeaderLengthWithHash(sha256.New) + len("mock data"))}, // header
-					[]byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U=")...,                                     // HMAC("mock data", "mock key")
+					// HMAC((length, data), key)
+					[]byte("ayfkWUgjU14GmJSb+O5QP3IU7ZepnQ52KwV2s7iBX8Q="),
+					// length
+					[]byte{0, 0, 0, 0, 0, 0, 0, byte(computeHeaderLengthWithHash(sha256.New) + mockRawMsgLength)}...,
 				)),
 		},
 	}
@@ -198,9 +213,6 @@ func Test_GetMessageAuthenticationHeader(t *testing.T) {
 		authenticator := NewDefaultMessageAuthenticator(test.hashFn, test.key)
 
 		t.Run(test.name, func(t *testing.T) {
-
-			log.Println(test.expectedResult)
-
 			result, err := authenticator.GetMessageAuthenticationHeader(test.data)
 			assert.NoError(t, err)
 			assert.Equal(t, test.expectedResult, string(result))

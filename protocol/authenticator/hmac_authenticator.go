@@ -90,9 +90,13 @@ func encodeHeader(
 	key []byte,
 	data []byte,
 ) ([]byte, error) {
+	// binary encode message length -- taking into acount header and data.
+	encodedMessageLength := make([]byte, lengthHeaderFieldSize)
+	binary.BigEndian.PutUint64(encodedMessageLength, uint64(headerLen+len(data)))
+
 	// compute HMAC for message
 	computed := hmac.New(hashFn, key)
-	if _, err := computed.Write(data); err != nil {
+	if _, err := computed.Write(append(encodedMessageLength, data...)); err != nil {
 		// note: hash.Write() never returns an error as per godoc
 		// (https://pkg.go.dev/hash#Hash) but we check it regardless
 		return nil, err
@@ -102,12 +106,8 @@ func encodeHeader(
 	// will stop reading at the special character and cause reading to fail.
 	sum := base64.StdEncoding.EncodeToString(computed.Sum(nil))
 
-	// binary encode message length -- taking into acount header and data.
-	encodedMessageLength := make([]byte, lengthHeaderFieldSize)
-	binary.BigEndian.PutUint64(encodedMessageLength, uint64(headerLen+len(data)))
-
 	// return all header bytes appended
-	return append(encodedMessageLength, []byte(sum)...), nil
+	return append([]byte(sum), encodedMessageLength...), nil
 }
 
 func decodeHeader(
@@ -121,18 +121,21 @@ func decodeHeader(
 		return nil, data, fmt.Errorf("data too small to have header, got %d and expected at least %d", actualDataLen, headerLen)
 	}
 
-	size := binary.BigEndian.Uint64(data[:lengthHeaderFieldSize])
+	header := data[:headerLen]
+	mac := header[:headerLen-lengthHeaderFieldSize]
+	rawSize := header[headerLen-lengthHeaderFieldSize:]
+
+	size := binary.BigEndian.Uint64(rawSize)
 	if uint64(actualDataLen) < size {
 		return nil, data, fmt.Errorf("data smaller than message length reported in header, got %d and expected at least %d", actualDataLen, size)
 	}
 
-	mac := data[lengthHeaderFieldSize:headerLen] // mac starts after the size bytes and ends at the header size
-	msg := data[headerLen:size]                  // msg is from end of mac to end of size (size includes maclen)
-	rest := data[size:]                          // rest is everything else
+	msg := data[headerLen:size] // message starts after header and ends after 'size' bytes
+	rest := data[size:]         // rest is everything after 'size' bytes
 
 	// compute mac for message
 	computed := hmac.New(hashFn, key)
-	if _, err := computed.Write(msg); err != nil {
+	if _, err := computed.Write(append(rawSize, msg...)); err != nil {
 		// note: hash.Write() never returns an error as per godoc
 		// (https://pkg.go.dev/hash#Hash) but we check it regardless
 		return nil, data, err

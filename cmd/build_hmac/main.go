@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	key := os.Getenv("HMAC_PSK")
+	key := os.Getenv("MAC_PSK")
 	if key == "" {
 		log.Fatalf("no key in env MAC_PSK")
 	}
