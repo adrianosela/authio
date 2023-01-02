@@ -16,6 +16,15 @@ Authenticated message implementations of io.Reader and io.Writer
 
 Note that `authio.Writer` and `authio.Reader` are aliases for other types in this package. Under the hood they point to `authio.AppendMACWriter` and `authio.VerifyMACReader` respectively, which are considered "default" because they will be used in the vast majority of scenarios.
 
+### Road Map
+
+- Timestamp/SequenceNum/Nonces i.e. replay attack mitigation
+- Unit tests for all functions
+- Better naming convention
+- Better message authentication (e.g. hash algo, size, etc) parameter setting on reader/writer building
+- Support asymmetric signing algorithms
+- Support OpenPGP / PGP key server integration
+
 ### Usage
 
 - `authio.AppendMACWriter`: computes and appends MACs on every message written
