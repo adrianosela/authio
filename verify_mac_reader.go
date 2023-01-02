@@ -51,7 +51,7 @@ func (r *VerifyMACReader) Read(b []byte) (int, error) {
 	buf = buf[:n]
 
 	// verify and remove MAC from read data
-	msg, err := CheckAndStripMAC(r.hashFn, r.macLen, r.key, buf)
+	msg, _, err := CheckAndStripMAC(r.hashFn, r.macLen, r.key, buf)
 	if err != nil {
 		return 0, fmt.Errorf("failed MAC verification: %s", err)
 	}

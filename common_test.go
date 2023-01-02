@@ -148,32 +148,36 @@ func Test_CheckAndStripMAC(t *testing.T) {
 	mockMsg = append(mockMsg, mockMsg...)
 
 	tests := []struct {
-		name           string
-		hashFn         func() hash.Hash
-		key            []byte
-		data           []byte
-		expectedResult string
+		name                string
+		hashFn              func() hash.Hash
+		key                 []byte
+		data                []byte
+		expectedMsg         string
+		expectedSubMsgCount int
 	}{
 		{
-			name:           "Single message",
-			hashFn:         sha256.New,
-			key:            []byte("mock key"),
-			data:           append([]byte{0, 0, 0, 0, 0, 0, 0, byte(GetMACLength(sha256.New) + len("mock data"))}, []byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U=mock data")...),
-			expectedResult: "mock data",
+			name:                "Single message",
+			hashFn:              sha256.New,
+			key:                 []byte("mock key"),
+			data:                append([]byte{0, 0, 0, 0, 0, 0, 0, byte(GetMACLength(sha256.New) + len("mock data"))}, []byte("HzNNBJld71Jg0DLW3TUoekDTMZbAzNvA5KpXWVTwU/U=mock data")...),
+			expectedMsg:         "mock data",
+			expectedSubMsgCount: 1,
 		},
 		{
-			name:           "Multiple messages",
-			hashFn:         sha256.New,
-			key:            []byte("mock key"),
-			data:           mockMsg,
-			expectedResult: "mock datamock data",
+			name:                "Multiple messages",
+			hashFn:              sha256.New,
+			key:                 []byte("mock key"),
+			data:                mockMsg,
+			expectedMsg:         "mock datamock data",
+			expectedSubMsgCount: 2,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := CheckAndStripMAC(test.hashFn, GetMACLength(test.hashFn), test.key, test.data)
+			msg, subMsgCount, err := CheckAndStripMAC(test.hashFn, GetMACLength(test.hashFn), test.key, test.data)
 			assert.NoError(t, err)
-			assert.Equal(t, test.expectedResult, string(result))
+			assert.Equal(t, test.expectedMsg, string(msg))
+			assert.Equal(t, test.expectedSubMsgCount, subMsgCount)
 		})
 	}
 }

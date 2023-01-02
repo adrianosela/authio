@@ -79,24 +79,25 @@ func ComputeAndPrependMAC(hash func() hash.Hash, key []byte, data []byte) ([]byt
 
 // CheckAndStripMAC verifies a message's MAC matches the message. If the computed
 // and received MACs match, returns the original message with the MAC removed.
-func CheckAndStripMAC(hash func() hash.Hash, hashLen int, key []byte, data []byte) ([]byte, error) {
+func CheckAndStripMAC(hash func() hash.Hash, hashLen int, key []byte, data []byte) ([]byte, int, error) {
 	if len(data) < sizeLen+hashLen {
-		return nil, fmt.Errorf("buffer too small to have authio header, got %d, expected >= %d", len(data), sizeLen+hashLen)
+		return nil, 0, fmt.Errorf("buffer too small to have authio header, got %d, expected >= %d", len(data), sizeLen+hashLen)
 	}
-
-	finalMsg := []byte{}
 
 	rest := data
 	msg := []byte{}
 	err := (error)(nil)
+	subMsgCount := 0
 
 	for len(rest) > 0 {
-		msg, rest, err = decodeHeader(hash, hashLen, key, rest)
+		var subMsg []byte
+		subMsg, rest, err = decodeHeader(hash, hashLen, key, rest)
 		if err != nil {
-			return nil, fmt.Errorf("failed decoding header: %s", err)
+			return nil, subMsgCount, fmt.Errorf("failed decoding header: %s", err)
 		}
-		finalMsg = append(finalMsg, msg...)
+		msg = append(msg, subMsg...)
+		subMsgCount++
 	}
 
-	return finalMsg, nil
+	return msg, subMsgCount, nil
 }

@@ -38,13 +38,13 @@ func NewVerifyMACWriter(writer io.Writer, key []byte) *VerifyMACWriter {
 
 // Write writes the contents of a buffer to a writer (with MAC excluded)
 func (w *VerifyMACWriter) Write(b []byte) (int, error) {
-	msg, err := CheckAndStripMAC(w.hashFn, w.macLen, w.key, b)
+	msg, subMsgCount, err := CheckAndStripMAC(w.hashFn, w.macLen, w.key, b)
 	if err != nil {
 		return 0, fmt.Errorf("failed MAC verification: %s", err)
 	}
 	n, err := w.writer.Write(msg)
 	if err != nil {
-		return n + (sizeLen + w.macLen), fmt.Errorf("failed to write authenticated message: %s", err)
+		return n + subMsgCount*(sizeLen+w.macLen), fmt.Errorf("failed to write authenticated message: %s", err)
 	}
-	return n + (sizeLen + w.macLen), nil
+	return n + subMsgCount*(sizeLen+w.macLen), nil
 }
