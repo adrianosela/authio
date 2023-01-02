@@ -2,8 +2,6 @@ package authio
 
 import (
 	"crypto/sha256"
-	"errors"
-	"fmt"
 	"io"
 
 	"github.com/adrianosela/authio/protocol/authenticator"
@@ -14,6 +12,8 @@ type VerifyMACReader struct {
 	reader        io.Reader // underlying io.Reader to read from
 	authenticator authenticator.MessageAuthenticator
 	authHeaderLen int
+
+	readReadyBytes []byte
 }
 
 // ensure VerifyMACReader implements io.Reader at compile-time
@@ -23,38 +23,43 @@ var _ io.Reader = (*VerifyMACReader)(nil)
 func NewVerifyMACReader(reader io.Reader, key []byte) *VerifyMACReader {
 	authenticator := authenticator.NewDefaultMessageAuthenticator(sha256.New, key)
 	return &VerifyMACReader{
-		reader:        reader,
-		authenticator: authenticator,
-		authHeaderLen: authenticator.GetMessageAuthenticationHeaderLength(),
+		reader:         reader,
+		authenticator:  authenticator,
+		authHeaderLen:  authenticator.GetMessageAuthenticationHeaderLength(),
+		readReadyBytes: []byte{},
 	}
 }
 
 // Read reads data onto the given buffer
 func (r *VerifyMACReader) Read(b []byte) (int, error) {
-	// buffer big enough to read mac and fill b
-	buf := make([]byte, r.authHeaderLen+len(b))
+	n := 0
 
-	// read at least one hash length (empty message)
-	n, err := io.ReadAtLeast(r.reader, buf, r.authHeaderLen)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return 0, io.EOF
+	// if there are any bytes already
+	// verified copy those into b first
+	if len(r.readReadyBytes) > 0 {
+		// copy n bytes where n is the smallest of len(b) and len(r.readReadyBytes)
+		n += copy(b, r.readReadyBytes)
+		// adjust the in-memory already verified bytes
+		r.readReadyBytes = r.readReadyBytes[n:]
+		// no point continuing if we've already filled b; return
+		if n == len(b) {
+			return n, nil
 		}
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			return 0, fmt.Errorf("bad message received, too short to have MAC")
-		}
-		return 0, fmt.Errorf("failed to read message: %s", err)
 	}
 
-	// take portion of buffer actually read into
-	data := buf[:n]
-
-	// verify and remove MAC from read data
-	msg, _, err := r.authenticator.AuthenticateMessages(data)
+	message, err := r.authenticator.ReadNext(r.reader)
 	if err != nil {
-		return 0, fmt.Errorf("failed MAC verification: %s", err)
+		return n, err
 	}
 
-	// copy the message onto the given buffer
-	return copy(b, msg), nil
+	m := copy(b[n:], message)
+
+	// if more bytes were received than the space available
+	// in b, save them to be returned on the next read
+	if len(message) > (len(b) - n) {
+		r.readReadyBytes = append(r.readReadyBytes, message[m:]...)
+	}
+
+	n += m
+	return n, nil
 }

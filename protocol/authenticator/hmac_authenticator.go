@@ -4,8 +4,10 @@ import (
 	"crypto/hmac"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"math"
 )
 
@@ -72,6 +74,56 @@ func (a *DefaultMessageAuthenticator) AuthenticateMessages(data []byte) ([]byte,
 	}
 
 	return processed, nMessages, nil
+}
+
+// ReadNext reads and verifies HMAC on a single messages
+func (a *DefaultMessageAuthenticator) ReadNext(r io.Reader) ([]byte, error) {
+	header := make([]byte, a.headerLen)
+
+	// read header
+	if _, err := io.ReadFull(r, header); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, io.EOF
+		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, fmt.Errorf("read data too short to have valid header")
+		}
+		return nil, fmt.Errorf("failed to read message header: %s", err)
+	}
+
+	mac := header[:a.headerLen-lengthHeaderFieldSize]
+	rawSize := header[a.headerLen-lengthHeaderFieldSize:]
+	size := binary.BigEndian.Uint64(rawSize)
+
+	msg := make([]byte, size-uint64(a.headerLen)) // we already read the header
+	// read msg
+	if _, err := io.ReadFull(r, msg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, io.EOF
+		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, fmt.Errorf("read message too short, does not match message size from header")
+		}
+		return nil, fmt.Errorf("failed to read message: %s", err)
+	}
+
+	// compute mac for message
+	computed := hmac.New(a.hashFn, a.key)
+	if _, err := computed.Write(append(rawSize, msg...)); err != nil {
+		// note: hash.Write() never returns an error as per godoc
+		// (https://pkg.go.dev/hash#Hash) but we check it regardless
+		return nil, err
+	}
+
+	// received MAC is base64 to avoid special character (e.g. '\n') bytes in hash
+	sum := base64.StdEncoding.EncodeToString(computed.Sum(nil))
+
+	// compare received vs computed MAC
+	if string(mac) != sum {
+		return nil, fmt.Errorf("MAC mismatch: is %s - need %s", sum, mac)
+	}
+
+	return msg, nil
 }
 
 func computeHeaderLengthWithHash(hashFn func() hash.Hash) int {
