@@ -4,16 +4,16 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
+
+	"github.com/adrianosela/authio/protocol/authenticator"
 )
 
 // AppendMACReader is a reader that computes and prepends MACs to every message
 type AppendMACReader struct {
-	reader io.Reader        // underlying io.Reader to read from
-	hashFn func() hash.Hash // function that returns the Hash implementation
-	macLen int              // length (in bytes) of produced MACs
-	key    []byte           // message authentication key
+	reader        io.Reader // underlying io.Reader to read from
+	authenticator authenticator.MessageAuthenticator
+	authHeaderLen int
 }
 
 // ensure AppendMACReader implements io.Reader at compile-time
@@ -21,24 +21,23 @@ var _ io.Reader = (*AppendMACReader)(nil)
 
 // NewAppendMACReader returns a new AppendMACReader
 func NewAppendMACReader(reader io.Reader, key []byte) *AppendMACReader {
-	r := &AppendMACReader{
-		reader: reader,
-		key:    key,
-		hashFn: sha256.New,
+	authenticator := authenticator.NewDefaultMessageAuthenticator(sha256.New, key)
+	return &AppendMACReader{
+		reader:        reader,
+		authenticator: authenticator,
+		authHeaderLen: authenticator.GetMessageAuthenticationHeaderLength(),
 	}
-	r.macLen = GetMACLength(r.hashFn)
-	return r
 }
 
 // Read reads data onto the given buffer
 func (r *AppendMACReader) Read(b []byte) (int, error) {
-	if len(b) < r.macLen {
+	if len(b) < r.authHeaderLen {
 		return 0, fmt.Errorf("buffer too small, cannot fit MAC")
 	}
 
 	// read at-most the size of the buffer minus size of mac
 	// (to leave space in the buffer for the added MAC)
-	buf := make([]byte, len(b)-r.macLen)
+	buf := make([]byte, len(b)-r.authHeaderLen)
 	reader := io.LimitReader(r.reader, int64(len(buf)))
 
 	n, err := reader.Read(buf)
@@ -52,15 +51,15 @@ func (r *AppendMACReader) Read(b []byte) (int, error) {
 		return 0, fmt.Errorf("failed to read message: %s", err)
 	}
 
-	// reduce buffer size to actual data read from reader
-	buf = buf[:n]
+	// take portion of buffer actually read into
+	data := buf[:n]
 
-	// compute and add mac
-	authedMsg, err := ComputeAndPrependMAC(r.hashFn, r.key, buf)
+	// compute message authentication header
+	header, err := r.authenticator.GetMessageAuthenticationHeader(data)
 	if err != nil {
-		return 0, fmt.Errorf("failed to compute MAC for message: %s", err)
+		return 0, fmt.Errorf("failed to compute message authentication header for message: %s", err)
 	}
 
 	// copy the message onto the given buffer
-	return copy(b, authedMsg), nil
+	return copy(b, append(header, data...)), nil
 }

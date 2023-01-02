@@ -4,16 +4,16 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
+
+	"github.com/adrianosela/authio/protocol/authenticator"
 )
 
 // VerifyMACReader is a reader that verifies and strips MACs from every message
 type VerifyMACReader struct {
-	reader io.Reader        // underlying io.Reader to read from
-	hashFn func() hash.Hash // function that returns the Hash implementation
-	macLen int              // length (in bytes) of produced MACs
-	key    []byte           // message authentication key
+	reader        io.Reader // underlying io.Reader to read from
+	authenticator authenticator.MessageAuthenticator
+	authHeaderLen int
 }
 
 // ensure VerifyMACReader implements io.Reader at compile-time
@@ -21,22 +21,21 @@ var _ io.Reader = (*VerifyMACReader)(nil)
 
 // NewVerifyMACReader returns a new VerifyMACReader
 func NewVerifyMACReader(reader io.Reader, key []byte) *VerifyMACReader {
-	r := &VerifyMACReader{
-		reader: reader,
-		key:    key,
-		hashFn: sha256.New,
+	authenticator := authenticator.NewDefaultMessageAuthenticator(sha256.New, key)
+	return &VerifyMACReader{
+		reader:        reader,
+		authenticator: authenticator,
+		authHeaderLen: authenticator.GetMessageAuthenticationHeaderLength(),
 	}
-	r.macLen = GetMACLength(r.hashFn)
-	return r
 }
 
 // Read reads data onto the given buffer
 func (r *VerifyMACReader) Read(b []byte) (int, error) {
 	// buffer big enough to read mac and fill b
-	buf := make([]byte, r.macLen+len(b))
+	buf := make([]byte, r.authHeaderLen+len(b))
 
 	// read at least one hash length (empty message)
-	n, err := io.ReadAtLeast(r.reader, buf, r.macLen)
+	n, err := io.ReadAtLeast(r.reader, buf, r.authHeaderLen)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return 0, io.EOF
@@ -47,11 +46,11 @@ func (r *VerifyMACReader) Read(b []byte) (int, error) {
 		return 0, fmt.Errorf("failed to read message: %s", err)
 	}
 
-	// reduce buffer size to actual data read from reader
-	buf = buf[:n]
+	// take portion of buffer actually read into
+	data := buf[:n]
 
 	// verify and remove MAC from read data
-	msg, _, err := CheckAndStripMAC(r.hashFn, r.macLen, r.key, buf)
+	msg, _, err := r.authenticator.AuthenticateMessages(data)
 	if err != nil {
 		return 0, fmt.Errorf("failed MAC verification: %s", err)
 	}

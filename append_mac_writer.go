@@ -3,16 +3,16 @@ package authio
 import (
 	"crypto/sha256"
 	"fmt"
-	"hash"
 	"io"
+
+	"github.com/adrianosela/authio/protocol/authenticator"
 )
 
 // AppendMACWriter is a writer that computes and prepends MACs to every message
 type AppendMACWriter struct {
-	writer io.Writer        // underlying io.Writer to write to
-	hashFn func() hash.Hash // function that returns the Hash implementation
-	macLen int              // length (in bytes) of produced MACs
-	key    []byte           // message authentication key
+	writer        io.Writer // underlying io.Writer to write to
+	authenticator authenticator.MessageAuthenticator
+	authHeaderLen int
 }
 
 // ensure AppendMACWriter implements io.Writer at compile-time
@@ -20,28 +20,27 @@ var _ io.Writer = (*AppendMACWriter)(nil)
 
 // NewAppendMACWriter wraps an io.Writer in an AppendMACWriter
 func NewAppendMACWriter(writer io.Writer, key []byte) *AppendMACWriter {
-	w := &AppendMACWriter{
-		writer: writer,
-		key:    key,
-		hashFn: sha256.New,
+	authenticator := authenticator.NewDefaultMessageAuthenticator(sha256.New, key)
+	return &AppendMACWriter{
+		writer:        writer,
+		authenticator: authenticator,
+		authHeaderLen: authenticator.GetMessageAuthenticationHeaderLength(),
 	}
-	w.macLen = GetMACLength(w.hashFn)
-	return w
 }
 
 // Write writes the contents of a buffer to a writer (with an included MAC)
 func (w *AppendMACWriter) Write(b []byte) (int, error) {
-	data, err := ComputeAndPrependMAC(w.hashFn, w.key, b)
+	header, err := w.authenticator.GetMessageAuthenticationHeader(b)
 	if err != nil {
 		return 0, fmt.Errorf("failed to compute MAC for message: %s", err)
 	}
-	n, err := w.writer.Write(data)
+	n, err := w.writer.Write(append(header, b...))
 	if err != nil {
-		if n >= (sizeLen + w.macLen) {
-			return n - (sizeLen + w.macLen), fmt.Errorf("failed to write authenticated message: %s", err)
+		if n >= w.authHeaderLen {
+			return n - w.authHeaderLen, fmt.Errorf("failed to write authenticated message: %s", err)
 		}
-		// no message bytes were written (only MAC)
+		// no message bytes were written (only header)
 		return 0, fmt.Errorf("failed to write authenticated message: %s", err)
 	}
-	return n - (sizeLen + w.macLen), nil
+	return n - w.authHeaderLen, nil
 }

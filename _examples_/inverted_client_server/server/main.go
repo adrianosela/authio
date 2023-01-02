@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -62,7 +61,6 @@ func handleConn(clientID int, conn net.Conn, key string) {
 
 	// initialize authenticated reader and writer
 	authedWriter := authio.NewVerifyMACWriter(os.Stdout, []byte(key))
-	macLength := 8 + authio.GetMACLength(sha256.New)
 
 	for {
 		// read ${REQ_MAC}:${MSG}
@@ -87,7 +85,7 @@ func handleConn(clientID int, conn net.Conn, key string) {
 		// write [${TIMESTAMP}] ${MSG} back
 		_, err = io.WriteString(
 			authio.NewAppendMACWriter(conn, []byte(key)),
-			fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), string([]byte(msg)[macLength:])),
+			fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), string([]byte(msg)[52:])),
 		)
 		if err != nil {
 			log.Printf("failed to write to writer for client id %d: %s", clientID, err)
